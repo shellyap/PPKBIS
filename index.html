@@ -540,7 +540,6 @@
                         
                         const sessions = {};
                         candidates.forEach(c => {
-                            // Fallback logic and naming convention for sorting unknown sessions to the bottom
                             const sessionKey = c.session || 'zz_Unassigned Session';
                             if (!sessions[sessionKey]) sessions[sessionKey] = [];
                             sessions[sessionKey].push(c);
@@ -549,7 +548,6 @@
                         const sessionKeys = Object.keys(sessions).sort();
 
                         sessionKeys.forEach(sessionKey => {
-                            // Display the session key, removing the sorting prefix if present
                             const displayKey = sessionKey.startsWith('zz_') ? sessionKey.substring(3) : sessionKey;
                             
                             const sessionGroup = document.createElement('div');
@@ -571,7 +569,7 @@
 
                                 li.innerHTML = `<div class="flex justify-between items-center p-2">
                                     <div class="flex items-center space-x-3 drag-handle text-gray-400 hover:text-gray-600 cursor-grab">
-                                        <svg xmlns="http://www.w3d3g/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                                             <path d="M10 3a1 1 0 011 1v2a1 1 0 11-2 0V4a1 1 0 011-1zM7 7a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zM4 11a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM7 15a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zM10 18a1 1 0 011-1v2a1 1 0 11-2 0v-2a1 1 0 011 1z"/>
                                         </svg>
                                         <span class="text-sm font-medium text-gray-900">${c.orderIndex || '-'}. ${c.name}</span>
