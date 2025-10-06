@@ -160,7 +160,7 @@
                          <h2 class="text-2xl font-semibold mb-4">System Controls</h2>
                          <div class="space-y-2">
                             <button id="download-pdf-button" class="w-full text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-5 py-2.5">Download Results as PDF</button>
-                            <button id="reset-scores-button" class="w-full text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-sm px-5 py-2.5">Reset All Scores Only</button>
+                             <button id="reset-scores-button" class="w-full text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-sm px-5 py-2.5">Reset All Scores Only</button>
                             <button id="reset-all-button" class="w-full text-white bg-red-600 hover:bg-red-700 font-medium rounded-lg text-sm px-5 py-2.5">Reset Everything (Presenters & Scores)</button>
                          </div>
                     </div>
@@ -350,6 +350,13 @@
                             categorySelect.value = category;
                         }
                     }
+                    
+                    const updatePresence = () => {
+                        if (!currentUser) return;
+                        const presenceRef = doc(db, `artifacts/${appId}/public/data/presence`, currentUser.id);
+                        setDoc(presenceRef, { name: currentUser.name, lastSeen: serverTimestamp() })
+                            .catch(err => console.error("Could not update presence:", err));
+                    };
 
                     async function handleLogin(e) {
                         e.preventDefault();
@@ -377,11 +384,6 @@
                         } else { 
                             document.getElementById('judge-header').textContent = `Judge Panel - ${currentUser.name}`;
                             document.getElementById('current-session-display').textContent = `Session: ${currentJudgeSession}`;
-                            const presenceRef = doc(db, `artifacts/${appId}/public/data/presence`, currentUser.id);
-                            const updatePresence = () => {
-                                if (!currentUser) return; // Add guard clause here
-                                setDoc(presenceRef, { name: currentUser.name, lastSeen: serverTimestamp() });
-                            }
                             await updatePresence();
                             presenceInterval = setInterval(updatePresence, 20000); 
                             showView('judge'); 
@@ -407,32 +409,39 @@
                     }
 
                     // --- ADMIN VIEW LOGIC ---
+                     function renderOnlineJudges(presenceDocs) {
+                        const listEl = document.getElementById('judges-online-list');
+                        if(!listEl) return;
+                        listEl.innerHTML = '';
+                        const now = Date.now();
+                        presenceDocs.forEach(docSnap => {
+                            const data = docSnap.data();
+                            if (data.lastSeen && (now - data.lastSeen.toDate().getTime()) < 30000) { // 30 second threshold
+                                const div = document.createElement('div');
+                                div.className = 'flex items-center bg-gray-100 p-2 rounded-lg';
+                                div.innerHTML = `<span class="online-indicator mr-3"></span><span class="font-medium text-gray-700">${data.name}</span>`;
+                                listEl.appendChild(div);
+                            }
+                        });
+                         if (!listEl.hasChildNodes()) {
+                            listEl.innerHTML = '<p class="text-gray-500 text-sm">No judges currently online.</p>';
+                        }
+                    }
 
                     function initAdminView() {
                         unsubscribeCandidates = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/candidates`)), async (candidateSnapshot) => {
                             adminCandidates = candidateSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                            adminCandidates.sort((a, b) => {
-                                if (a.session !== b.session) return (a.session || "").localeCompare(b.session || "");
-                                return (a.orderIndex || 0) - (b.orderIndex || 0);
-                            });
-                            
-                            const [scoreSnapshot, feedbackSnapshot] = await Promise.all([
-                                getDocs(collection(db, `artifacts/${appId}/public/data/scores`)),
-                                getDocs(collection(db, `artifacts/${appId}/public/data/feedback`))
-                            ]);
-                            
-                            adminScores = scoreSnapshot.docs.map(d => d.data());
-                            adminFeedbacks = feedbackSnapshot.docs.map(d => d.data());
-                            
                             renderAdminCandidateList(adminCandidates);
                             calculateAndDisplayResults(adminCandidates, adminScores, adminFeedbacks);
                         });
 
                         unsubscribeScores = onSnapshot(collection(db, `artifacts/${appId}/public/data/scores`), async (scoreSnapshot) => {
-                            if (adminCandidates.length === 0) return;
                             adminScores = scoreSnapshot.docs.map(d => d.data());
-                            const feedbackSnapshot = await getDocs(collection(db, `artifacts/${appId}/public/data/feedback`));
-                            adminFeedbacks = feedbackSnapshot.docs.map(d => d.data());
+                            calculateAndDisplayResults(adminCandidates, adminScores, adminFeedbacks);
+                        });
+                        
+                        unsubscribeFeedbacks = onSnapshot(collection(db, `artifacts/${appId}/public/data/feedback`), (snapshot) => {
+                            adminFeedbacks = snapshot.docs.map(d => d.data());
                             calculateAndDisplayResults(adminCandidates, adminScores, adminFeedbacks);
                         });
                         
@@ -462,31 +471,15 @@
                             return;
                         }
                         
-                        try {
-                            const tempId = `temp-${Date.now()}`;
-                            const newCandidate = { id: tempId, name: candidateName, session: session, category: category, orderIndex: orderIndex };
-                            
-                            const updatedCandidates = [...adminCandidates, newCandidate].sort((a, b) => {
-                                if (a.session !== b.session) return a.session.localeCompare(b.session);
-                                return a.orderIndex - b.orderIndex;
-                            });
-                            renderAdminCandidateList(updatedCandidates);
-                            
-                            await addDoc(collection(db, `artifacts/${appId}/public/data/candidates`), { 
-                                name: candidateName, 
-                                session: session,
-                                category: category,
-                                orderIndex: orderIndex
-                            });
+                        await addDoc(collection(db, `artifacts/${appId}/public/data/candidates`), { 
+                            name: candidateName, 
+                            session: session,
+                            category: category,
+                            orderIndex: orderIndex
+                        });
 
-                            candidateNameInput.value = '';
-                            document.getElementById('candidate-order').value = '';
-
-                        } catch (error) {
-                            console.error("Error adding candidate:", error);
-                            alert("Error adding presenter. Check console for details.");
-                            renderAdminCandidateList(adminCandidates);
-                        }
+                        candidateNameInput.value = '';
+                        document.getElementById('candidate-order').value = '';
                     }
 
                     async function deleteCandidate(candidateId) {
@@ -587,7 +580,7 @@
                             ulList.dataset.session = sessionKey;
 
                             if (sessions[sessionKey].length > 0) {
-                                sessions[sessionKey].forEach(c => {
+                                sessions[sessionKey].sort((a,b)=> (a.orderIndex || 0) - (b.orderIndex || 0)).forEach(c => {
                                     const li = document.createElement('li');
                                     li.className = `presenter-item bg-gray-50 hover:bg-gray-100 rounded-lg shadow-sm`;
                                     li.dataset.id = c.id;
@@ -813,7 +806,7 @@
                     }
                     
                     async function resetScores() {
-                         if (await showConfirmationModal('Reset All Scores', 'This will delete ALL scores and feedback. This action is irreversible.')) {
+                         if (await showConfirmationModal('Reset All Scores Only?', 'This will delete ALL scores and feedback but will keep the list of presenters. This action is irreversible.')) {
                             const scoresQuery = query(collection(db, `artifacts/${appId}/public/data/scores`));
                             const feedbackQuery = query(collection(db, `artifacts/${appId}/public/data/feedback`));
 
@@ -823,7 +816,25 @@
                             scoresSnapshot.docs.forEach(d => batch.delete(d.ref));
                             feedbackSnapshot.docs.forEach(d => batch.delete(d.ref));
                             await batch.commit();
+                            alert('All scores and feedback have been reset.');
                          }
+                    }
+                    
+                    async function handleResetEverything() {
+                        if (await showConfirmationModal('RESET EVERYTHING?', 'This will delete ALL presenters, scores, and feedback. This action is irreversible and will completely wipe the event data.')) {
+                            const [candidatesSnapshot, scoresSnapshot, feedbackSnapshot] = await Promise.all([
+                                getDocs(query(collection(db, `artifacts/${appId}/public/data/candidates`))),
+                                getDocs(query(collection(db, `artifacts/${appId}/public/data/scores`))),
+                                getDocs(query(collection(db, `artifacts/${appId}/public/data/feedback`)))
+                            ]);
+
+                            const batch = writeBatch(db);
+                            candidatesSnapshot.docs.forEach(d => batch.delete(d.ref));
+                            scoresSnapshot.docs.forEach(d => batch.delete(d.ref));
+                            feedbackSnapshot.docs.forEach(d => batch.delete(d.ref));
+                            await batch.commit();
+                            alert('The entire event has been reset.');
+                        }
                     }
 
                     // --- JUDGE VIEW LOGIC ---
@@ -841,32 +852,6 @@
                             renderCurrentPresenterCard();
                             checkFinalSubmissionStatus();
                         });
-
-                        // Also fetch any scores that might already exist for this judge in this session
-                        fetchAllJudgeScores();
-                    }
-
-                    async function fetchAllJudgeScores() {
-                        allJudgeScores = {}; // Reset local scores
-                        const q = query(collection(db, `artifacts/${appId}/public/data/scores`), where("judgeId", "==", currentUser.id));
-                        const scoresSnapshot = await getDocs(q);
-                        scoresSnapshot.forEach(docSnap => {
-                            const scoreData = docSnap.data();
-                            if(!allJudgeScores[scoreData.candidateId]) allJudgeScores[scoreData.candidateId] = {};
-                            allJudgeScores[scoreData.candidateId][scoreData.category] = scoreData.score;
-                        });
-
-                        const feedbackQuery = query(collection(db, `artifacts/${appId}/public/data/feedback`), where("judgeId", "==", currentUser.id));
-                        const feedbackSnapshot = await getDocs(feedbackQuery);
-                        feedbackSnapshot.forEach(docSnap => {
-                            const feedbackData = docSnap.data();
-                            if(!allJudgeScores[feedbackData.candidateId]) allJudgeScores[feedbackData.candidateId] = {};
-                            allJudgeScores[feedbackData.candidateId].feedbackText = feedbackData.feedbackText;
-                        });
-                        
-                        renderJudgeSidebar();
-                        renderCurrentPresenterCard();
-                        checkFinalSubmissionStatus();
                     }
 
                     function renderJudgeSidebar() {
@@ -880,16 +865,11 @@
                         }
 
                         allJudgeCandidates.forEach(c => {
-                            const scores = allJudgeScores[c.id];
-                            const criteria = CATEGORIES[c.category];
-                            const isScored = scores && criteria.every(crit => scores[crit.name] !== null && scores[crit.name] !== undefined);
-
                             const div = document.createElement('div');
                             div.className = `sidebar-item p-3 rounded-md flex justify-between items-center ${currentPresenterId === c.id ? 'active-card' : ''}`;
                             div.dataset.id = c.id;
                             div.innerHTML = `<span>${c.orderIndex}. ${c.name}</span>
-                                ${isScored ? `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-500" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>` : ''}
-                            `;
+                                <span class="score-status-indicator" data-candidate-id="${c.id}"></span>`;
                             div.onclick = () => {
                                 currentPresenterId = c.id;
                                 renderJudgeSidebar();
@@ -897,6 +877,29 @@
                             };
                             listEl.appendChild(div);
                         });
+                        updateAllScoreStatusIndicators();
+                    }
+
+                    function updateAllScoreStatusIndicators() {
+                        allJudgeCandidates.forEach(c => {
+                             updateScoreStatusIndicator(c.id);
+                        });
+                    }
+
+                    function updateScoreStatusIndicator(candidateId) {
+                        const indicator = document.querySelector(`.score-status-indicator[data-candidate-id="${candidateId}"]`);
+                        if (!indicator) return;
+
+                        const candidate = allJudgeCandidates.find(c => c.id === candidateId);
+                        if (!candidate) return;
+
+                        const scores = allJudgeScores[candidateId];
+                        const criteria = CATEGORIES[candidate.category];
+                        const isScored = scores && criteria.every(crit => scores[crit.name] !== null && scores[crit.name] !== undefined);
+                        
+                        indicator.innerHTML = isScored 
+                            ? `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-500" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>`
+                            : '';
                     }
 
                     function renderCurrentPresenterCard() {
@@ -965,47 +968,78 @@
                          form.querySelector('.total-score').textContent = total;
                     }
                     
-                    function handleScoreSave(e) {
+                    async function handleScoreSave(e) {
                         e.preventDefault();
                         if (isSubmittingScore) return;
                         
                         const form = e.target;
                         const candidateId = form.dataset.candidateId;
                         
-                        if(!allJudgeScores[candidateId]) allJudgeScores[candidateId] = {};
-                        
                         let isComplete = true;
-                        form.querySelectorAll('.score-input').forEach(input => {
-                            const category = input.name;
-                            const score = parseInt(input.value, 10);
-                            if(isNaN(score)) isComplete = false;
-                            allJudgeScores[candidateId][category] = isNaN(score) ? null : score;
+                        
+                        const batch = writeBatch(db);
+                        const candidate = allJudgeCandidates.find(c => c.id === candidateId);
+                        if (!candidate) return;
+
+                        const criteria = CATEGORIES[candidate.category];
+                        criteria.forEach(crit => {
+                             const input = form.querySelector(`[name="${crit.name}"]`);
+                             const score = parseInt(input.value, 10);
+                             if (isNaN(score)) {
+                                 isComplete = false;
+                             } else {
+                                const scoreId = `${candidateId}-${currentUser.id}-${crit.name.replace(/\W/g, '-')}`;
+                                const scoreRef = doc(db, `artifacts/${appId}/public/data/scores`, scoreId);
+                                batch.set(scoreRef, { candidateId, judgeId: currentUser.id, judgeName: currentUser.name, category: crit.name, score: score });
+                             }
                         });
 
+
                         if (!isComplete) {
-                            alert('Please fill in all score fields for this presenter.');
+                            alert('Please fill in all score fields for this presenter before moving to the next.');
                             return;
                         }
+
+                        const feedbackText = form.querySelector('textarea').value;
+                        const feedbackId = `${candidateId}_${currentUser.id}`;
+                        const feedbackRef = doc(db, `artifacts/${appId}/public/data/feedback`, feedbackId);
+                        batch.set(feedbackRef, { candidateId, judgeId: currentUser.id, feedbackText: feedbackText });
                         
-                        allJudgeScores[candidateId].feedbackText = form.querySelector('textarea').value;
+                        try {
+                            await batch.commit();
+                            updatePresence(); // Refresh online status on activity
+                            
+                            // Immediately update local state
+                            const scores = {};
+                             criteria.forEach(crit => {
+                                const input = form.querySelector(`[name="${crit.name}"]`);
+                                scores[crit.name] = parseInt(input.value, 10);
+                            });
+                            scores.feedbackText = feedbackText;
+                            allJudgeScores[candidateId] = scores;
 
-                        // Move to the next presenter
-                        const currentIndex = allJudgeCandidates.findIndex(c => c.id === candidateId);
-                        if (currentIndex < allJudgeCandidates.length - 1) {
-                            currentPresenterId = allJudgeCandidates[currentIndex + 1].id;
-                        } else {
-                            // Last presenter, stay on this card
-                            alert('All presenters for this session have been scored. Review your scores and then click "Submit All Scores".');
+
+                            // Move to the next presenter
+                            const currentIndex = allJudgeCandidates.findIndex(c => c.id === candidateId);
+                            if (currentIndex < allJudgeCandidates.length - 1) {
+                                currentPresenterId = allJudgeCandidates[currentIndex + 1].id;
+                                renderCurrentPresenterCard();
+                            } else {
+                                alert('All presenters for this session have been scored. Review your scores and then click "Submit All Scores".');
+                            }
+                            renderJudgeSidebar();
+                            checkFinalSubmissionStatus();
+
+                        } catch(err) {
+                            console.error("Error saving score:", err);
+                            alert("There was an error saving the score. Please try again.");
                         }
-
-                        renderJudgeSidebar();
-                        renderCurrentPresenterCard();
-                        checkFinalSubmissionStatus();
                     }
                     
                     function checkFinalSubmissionStatus() {
                         const submitButton = document.getElementById('final-submit-button');
                         if(!submitButton) return;
+
                         const allScored = allJudgeCandidates.every(c => {
                            const scores = allJudgeScores[c.id];
                            if (!scores) return false;
@@ -1017,53 +1051,17 @@
                     }
                     
                     async function handleFinalSubmit() {
-                        if (isSubmittingScore) return;
-
-                        const confirmationMessage = `You are about to submit all scores for this session. This action cannot be undone. Are you sure?`;
+                        const confirmationMessage = `You are confirming that all scores for this session are final. This action cannot be undone. Are you sure?`;
                         if (await showConfirmationModal('Final Submission', confirmationMessage)) {
-                            isSubmittingScore = true;
                             const submitButton = document.getElementById('final-submit-button');
-                            submitButton.textContent = 'Submitting...';
+                            submitButton.textContent = 'SUBMITTED';
                             submitButton.disabled = true;
+                            submitButton.classList.remove('bg-green-600', 'hover:bg-green-700');
+                            submitButton.classList.add('bg-gray-400', 'cursor-not-allowed');
 
-                            const batch = writeBatch(db);
-
-                            for (const candidateId in allJudgeScores) {
-                                const scores = allJudgeScores[candidateId];
-                                const candidate = allJudgeCandidates.find(c => c.id === candidateId);
-                                if (!candidate) continue;
-
-                                const criteria = CATEGORIES[candidate.category];
-                                criteria.forEach(crit => {
-                                     const score = scores[crit.name];
-                                     if(score !== null && score !== undefined) {
-                                        const scoreId = `${candidateId}-${currentUser.id}-${crit.name.replace(/\W/g, '-')}`;
-                                        const scoreRef = doc(db, `artifacts/${appId}/public/data/scores`, scoreId);
-                                        batch.set(scoreRef, { candidateId, judgeId: currentUser.id, judgeName: currentUser.name, category: crit.name, score: score });
-                                     }
-                                });
-                                
-                                const feedbackText = scores.feedbackText || '';
-                                const feedbackId = `${candidateId}_${currentUser.id}`;
-                                const feedbackRef = doc(db, `artifacts/${appId}/public/data/feedback`, feedbackId);
-                                batch.set(feedbackRef, { candidateId, judgeId: currentUser.id, feedbackText: feedbackText });
-                            }
-
-                            try {
-                                await batch.commit();
-                                alert('All scores submitted successfully!');
-                                document.getElementById('judge-presenter-card').innerHTML = `<p class="text-center text-2xl text-green-600 font-bold">Thank you! Your scores for this session have been submitted.</p>`;
-                                submitButton.textContent = 'SUBMITTED';
-                                submitButton.classList.remove('bg-green-600', 'hover:bg-green-700');
-                                submitButton.classList.add('bg-gray-400', 'cursor-not-allowed');
-                            } catch (error) {
-                                console.error("Error submitting final scores:", error);
-                                alert("An error occurred during final submission. Please try again.");
-                                submitButton.textContent = 'Submit All Scores';
-                                submitButton.disabled = false;
-                            } finally {
-                                isSubmittingScore = false;
-                            }
+                             document.getElementById('judge-presenter-card').innerHTML = `<p class="text-center text-2xl text-green-600 font-bold">Thank you! Your scores for this session have been submitted.</p>`;
+                             // Optionally disable sidebar clicks
+                             document.querySelectorAll('.sidebar-item').forEach(item => item.style.pointerEvents = 'none');
                         }
                     }
 
