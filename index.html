@@ -139,7 +139,7 @@
                                 <option value="Workshop">Workshop</option>
                             </select>
                             <input type="number" id="candidate-order" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2.5" placeholder="Order (e.g., 1, 2, 3)" required min="1">
-                            <button type="submit" class="w-full text-white bg-indigo-600 hover:bg-indigo-700 font-medium rounded-lg text-sm px-5 py-2.5">Add Presenter</button>
+                            <button type="submit" class="w-full text-white bg-indigo-600 hover:bg-indigo-700 focus:ring-4 focus:outline-none focus:ring-indigo-300 font-medium rounded-lg text-sm px-5 py-2.5">Add Presenter</button>
                         </form>
                     </div>
                     
@@ -540,7 +540,8 @@
                         
                         const sessions = {};
                         candidates.forEach(c => {
-                            const sessionKey = c.session || 'Unassigned Session';
+                            // Fallback logic and naming convention for sorting unknown sessions to the bottom
+                            const sessionKey = c.session || 'zz_Unassigned Session';
                             if (!sessions[sessionKey]) sessions[sessionKey] = [];
                             sessions[sessionKey].push(c);
                         });
@@ -548,9 +549,12 @@
                         const sessionKeys = Object.keys(sessions).sort();
 
                         sessionKeys.forEach(sessionKey => {
+                            // Display the session key, removing the sorting prefix if present
+                            const displayKey = sessionKey.startsWith('zz_') ? sessionKey.substring(3) : sessionKey;
+                            
                             const sessionGroup = document.createElement('div');
                             sessionGroup.className = 'mb-4 border-b border-indigo-200 pb-2';
-                            sessionGroup.innerHTML = `<h4 class="text-lg font-semibold text-indigo-700 mb-2">${sessionKey}</h4>`;
+                            sessionGroup.innerHTML = `<h4 class="text-lg font-semibold text-indigo-700 mb-2">${displayKey}</h4>`;
                             
                             const ulList = document.createElement('ul');
                             ulList.className = 'space-y-1 sortable-session-list';
@@ -567,7 +571,7 @@
 
                                 li.innerHTML = `<div class="flex justify-between items-center p-2">
                                     <div class="flex items-center space-x-3 drag-handle text-gray-400 hover:text-gray-600 cursor-grab">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <svg xmlns="http://www.w3d3g/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                                             <path d="M10 3a1 1 0 011 1v2a1 1 0 11-2 0V4a1 1 0 011-1zM7 7a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zM4 11a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM7 15a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zM10 18a1 1 0 011-1v2a1 1 0 11-2 0v-2a1 1 0 011 1z"/>
                                         </svg>
                                         <span class="text-sm font-medium text-gray-900">${c.orderIndex || '-'}. ${c.name}</span>
@@ -632,7 +636,7 @@
 
                         const rankings = results.sort((a, b) => b.average - a.average);
 
-                        // --- Render Winner Board ---
+                        // --- Render Winner Board (Real-Time Update) ---
                         const winnersBoard = document.getElementById('winners-board');
                         if(!winnersBoard) return;
                         winnersBoard.innerHTML = '';
@@ -652,7 +656,7 @@
                         grandWinnerHTML += `</div>`;
                         winnersBoard.innerHTML += grandWinnerHTML;
                         
-                        // 2. Category Winners Section (Separate Cards)
+                        // 2. Category Winners Section (Real-Time Update)
                         winnersBoard.innerHTML += `<h3 class="text-xl font-bold text-gray-900 mb-4">Winners by Category (Minimum ${FIXED_JUDGE_COUNT} Judges)</h3>`;
                         
                         const categoryCardContainer = document.createElement('div');
@@ -686,7 +690,7 @@
                         winnersBoard.appendChild(categoryCardContainer);
 
 
-                        // --- Render Rankings Table ---
+                        // --- Render Rankings Table (Real-Time Update) ---
                         const tableHeader = document.getElementById('rankings-header');
                         if(!tableHeader) return;
                         tableHeader.innerHTML = `<tr>
@@ -719,512 +723,7 @@
                             rankingsBody.appendChild(row);
                         });
 
-                        // --- Render Detailed Feedback Board ---
-                        const feedbackBoard = document.getElementById('feedback-details-board');
-                        if(!feedbackBoard) return;
-                        feedbackBoard.innerHTML = '';
-
-                        const judgeMap = new Map();
-                        scores.forEach(s => { if (!judgeMap.has(s.judgeId)) judgeMap.set(s.judgeId, s.judgeName) });
-
-                        const augmentedFeedbacks = feedbacks.map(f => ({ ...f, judgeName: judgeMap.get(f.judgeId) || 'Unknown' }));
-
-                        if (rankings.length === 0) {
-                            feedbackBoard.innerHTML = '<p class="text-gray-500">No presenters have been scored yet.</p>';
-                        } else {
-                            rankings.forEach(candidate => {
-                                const feedbackForCandidate = augmentedFeedbacks.filter(f => f.candidateId === candidate.id);
-                                const judgesWhoScored = Object.keys(candidate.scoresByJudge).filter(j => candidate.scoresByJudge[j] > 0);
-
-                                let candidateFeedbackHTML = `<div class="bg-gray-50 p-4 rounded-lg"><h3 class="text-lg font-bold text-indigo-700">${candidate.orderIndex ? `${candidate.orderIndex}. ` : ''}${candidate.name}</h3><div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">`;
-
-                                if (judgesWhoScored.length > 0) {
-                                    judgesWhoScored.forEach(judgeName => {
-                                        const judgeFeedback = feedbackForCandidate.find(f => f.judgeName === judgeName);
-                                        const feedbackText = (judgeFeedback && judgeFeedback.feedbackText) ? judgeFeedback.feedbackText : 'No feedback submitted.';
-                                        
-                                        candidateFeedbackHTML += `<div class="bg-white p-3 rounded-md shadow-sm">
-                                            <div class="flex justify-between items-center border-b pb-2 mb-2">
-                                                <p class="font-semibold text-gray-800">${judgeName}</p>
-                                                <p class="font-bold text-gray-600">Score: ${candidate.scoresByJudge[judgeName]}</p>
-                                            </div>
-                                            <p class="text-sm text-gray-600 italic">"${feedbackText}"</p>
-                                        </div>`;
-                                    });
-                                } else {
-                                    candidateFeedbackHTML += `<p class="text-sm text-gray-500 col-span-full">No scores or feedback submitted yet for this presenter.</p>`;
-                                }
-                                candidateFeedbackHTML += `</div></div>`;
-                                feedbackBoard.innerHTML += candidateFeedbackHTML;
-                            });
-                        }
-                    }
-                    
-                    // --- JUDGE VIEW LOGIC ---
-
-                    function initJudgeView() {
-                        // Listener for all candidates (sorted by session and order)
-                        unsubscribeCandidates = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/candidates`), orderBy("session"), orderBy("orderIndex")), (snapshot) => {
-                            allJudgeCandidates = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                            renderJudgeSidebar();
-                            
-                            // If no card is loaded yet, load the next unscored one.
-                            if (!currentPresenterId) {
-                                renderNextJudgeCard();
-                            } else {
-                                // If a card is loaded, re-render it to ensure fresh data
-                                renderNextJudgeCard(currentPresenterId);
-                            }
-                        });
-
-                        // Listener for only the current judge's scores
-                        const judgeScoresQuery = query(collection(db, `artifacts/${appId}/public/data/scores`), where("judgeId", "==", currentUser.id));
-                        unsubscribeScores = onSnapshot(judgeScoresQuery, (snapshot) => {
-                            allJudgeScores = snapshot.docs.map(d => d.data()).reduce((acc, s) => {
-                                acc[s.candidateId] = acc[s.candidateId] || 0;
-                                acc[s.candidateId] += s.score;
-                                return acc;
-                            }, {});
-                            
-                            renderJudgeSidebar();
-                            
-                            // Only force a UI update if not currently submitting, to prevent jumpiness
-                            if (!isSubmittingScore) {
-                                // If the current card was scored/updated, find the next unscored and load it.
-                                if (currentPresenterId) {
-                                    const unscored = getNextCandidate(allJudgeCandidates, allJudgeScores);
-                                    
-                                    // If current card is fully scored and there's a next unscored, navigate.
-                                    if (unscored && unscored.id !== currentPresenterId && allJudgeScores[currentPresenterId] > 0) {
-                                        renderNextJudgeCard(unscored.id);
-                                    } else if (currentPresenterId) {
-                                        // Otherwise, stay on the currently loaded card (either to finish scoring or show completion)
-                                        renderNextJudgeCard(currentPresenterId);
-                                    }
-                                }
-                            }
-                        });
-                        
-                        document.getElementById('final-submit-button').onclick = confirmFinalSubmission;
-                    }
-                    
-                    async function confirmFinalSubmission() {
-                        const allSessionCandidates = allJudgeCandidates.filter(c => c.session === currentJudgeSession);
-                        const unscoredCount = allSessionCandidates.filter(c => !allJudgeScores[c.id] || allJudgeScores[c.id] === 0).length;
-
-                        if (unscoredCount > 0) {
-                            alert(`You still have ${unscoredCount} presenter(s) with pending scores. Please complete all scores before final submission.`);
-                            return;
-                        }
-
-                        if (await showConfirmationModal('Final Score Submission', 'Are you absolutely sure you want to finalize and submit ALL scores for this session? This action is permanent.')) {
-                            const finalDocRef = doc(db, `artifacts/${appId}/public/data/final_submissions`, `${currentUser.id}_${currentJudgeSession}`);
-                            await setDoc(finalDocRef, {
-                                judgeId: currentUser.id,
-                                judgeName: currentUser.name,
-                                session: currentJudgeSession,
-                                timestamp: serverTimestamp(),
-                                status: 'FINALIZED'
-                            });
-                            
-                            alert('Scores finalized successfully! Thank you for judging.');
-                            renderJudgeSidebar();
-                        }
-                    }
-
-                    function renderJudgeSidebar() {
-                        const sidebarList = document.getElementById('judge-sidebar-list');
-                        const finalSubmitButton = document.getElementById('final-submit-button');
-                        if (!sidebarList || !finalSubmitButton) return;
-
-                        const sessionCandidates = allJudgeCandidates
-                            .filter(c => c.session === currentJudgeSession)
-                            .sort((a, b) => a.orderIndex - b.orderIndex);
-
-                        const totalCandidates = sessionCandidates.length;
-                        const scoredCount = sessionCandidates.filter(c => allJudgeScores[c.id] > 0).length;
-                        const allScored = totalCandidates > 0 && scoredCount === totalCandidates;
-
-                        sidebarList.innerHTML = sessionCandidates.map(c => {
-                            const isScored = allJudgeScores[c.id] > 0;
-                            const isCurrent = c.id === currentPresenterId;
-                            const statusClass = isScored ? 'text-green-600' : 'text-yellow-600';
-                            const statusText = isScored ? 'SCORED' : 'PENDING';
-                            
-                            return `<div data-id="${c.id}" class="sidebar-item ${isCurrent ? 'active-card' : 'text-gray-700'} p-2 rounded-lg text-sm flex justify-between items-center">
-                                <span>${c.orderIndex}. ${c.name}</span>
-                                <span class="text-xs ${statusClass} font-semibold">${statusText}</span>
-                            </div>`;
-                        }).join('');
-
-                        // Enable/Disable Final Submit button
-                        finalSubmitButton.disabled = !allScored;
-                        finalSubmitButton.textContent = allScored 
-                            ? `Confirm All Scores (${scoredCount}/${totalCandidates})` 
-                            : `Pending (${totalCandidates - scoredCount}) - Cannot Confirm`;
-
-                        document.querySelectorAll('.sidebar-item').forEach(item => {
-                            item.onclick = () => renderNextJudgeCard(item.dataset.id);
-                        });
-                    }
-
-
-                    function getNextCandidate(candidates, scores) {
-                        const sessionCandidates = candidates.filter(c => c.session === currentJudgeSession);
-                        
-                        const unscoredCandidate = sessionCandidates
-                            .sort((a, b) => a.orderIndex - b.orderIndex)
-                            .find(c => !scores[c.id] || scores[c.id] === 0);
-                        
-                        return unscoredCandidate || null;
-                    }
-
-                    function renderNextJudgeCard(candidateId = null) {
-                        const container = document.getElementById('judge-presenter-card');
-                        if (!container) return;
-                        
-                        let candidate;
-                        if (candidateId) {
-                            candidate = allJudgeCandidates.find(c => c.id === candidateId);
-                        } else {
-                            candidate = getNextCandidate(allJudgeCandidates, allJudgeScores);
-                        }
-
-                        if (!candidate) {
-                            container.innerHTML = `<p class="text-center text-green-600 text-2xl font-bold mt-4">Session Complete!</p>
-                                <p class="text-center text-gray-600 text-md mt-2">You have submitted scores for all ${currentJudgeSession} presenters. You may now confirm your final scores.</p>`;
-                            currentPresenterId = null;
-                            renderJudgeSidebar();
-                            return;
-                        }
-                        
-                        currentPresenterId = candidate.id;
-
-                        const criteria = CATEGORIES[candidate.category];
-                        const maxTotal = criteria.reduce((sum, crit) => sum + crit.max, 0);
-
-                        const isScored = allJudgeScores[candidate.id] > 0;
-                        const submitButtonText = isScored ? 'Update Scores & Proceed to Next' : 'Submit Scores & Next Presenter';
-                        const cardClass = isScored ? 'border-4 border-yellow-500 shadow-xl' : 'shadow-2xl';
-                        
-                        const criteriaHTML = criteria.map(crit => {
-                            const fieldId = `score-${candidate.id}-${crit.name.replace(/\W/g, '-')}`;
-                            return `<div class="space-y-1">
-                                <div class="flex justify-between items-center">
-                                    <label for="${fieldId}" class="text-sm font-medium text-gray-800">${crit.name} (Max: ${crit.max})</label>
-                                    <input type="number" id="${fieldId}" name="${crit.name}" data-max="${crit.max}" min="0" max="${crit.max}" class="score-input w-20 text-center bg-gray-50 border border-gray-300 text-sm rounded-lg p-1.5" required>
-                                </div>
-                                <p class="text-xs text-gray-500">${crit.desc}</p>
-                            </div>`;
-                        }).join('');
-
-                        container.className = `bg-white p-8 rounded-xl ${cardClass}`;
-                        container.innerHTML = `
-                            <h2 class="text-3xl font-bold mb-2">${candidate.orderIndex}. ${candidate.name}</h2>
-                            <p class="text-lg text-indigo-600 font-semibold mb-6">${candidate.session} (${candidate.category})</p>
-                            <form data-candidate-id="${candidate.id}" data-candidate-category="${candidate.category}" class="candidate-score-form space-y-4">
-                                <div class="space-y-4">${criteriaHTML}</div>
-                                <div class="text-right font-bold text-xl pt-4 border-t mt-4">Total: <span class="total-score">0</span> / ${maxTotal}</div>
-                                <div class="mt-4 pt-4 border-t">
-                                    <label for="feedback-${candidate.id}" class="block text-sm font-medium text-gray-700 mb-1">Feedback</label>
-                                    <textarea id="feedback-${candidate.id}" rows="3" class="w-full bg-gray-50 border border-gray-300 text-sm rounded-lg p-2"></textarea>
-                                </div>
-                                <button type="submit" class="w-full mt-4 text-white bg-indigo-600 hover:bg-indigo-700 font-medium rounded-lg text-base px-5 py-3">${submitButtonText}</button>
-                            </form>`;
-                        
-                        populateJudgeCard(candidate.id, candidate.category, container);
-                        renderJudgeSidebar();
-
-                        container.querySelector('.candidate-score-form').addEventListener('submit', handleScoreSubmitAndNext);
-                        container.querySelector('.candidate-score-form').addEventListener('input', e => {
-                            if (e.target.classList.contains('score-input')) {
-                                const input = e.target;
-                                const max = parseInt(input.dataset.max, 10);
-                                if (parseInt(input.value) > max) input.value = max;
-                                if (parseInt(input.value) < 0) input.value = 0;
-                                updateLiveTotal(e.target.closest('form'));
-                            }
-                        });
-                    }
-
-                    async function populateJudgeCard(candidateId, candidateCategory, container) {
-                        const scoreDocsSnapshot = await getDocs(query(collection(db, `artifacts/${appId}/public/data/scores`), 
-                            where("candidateId", "==", candidateId), 
-                            where("judgeId", "==", currentUser.id)));
-                        
-                        const feedbackDocRef = doc(db, `artifacts/${appId}/public/data/feedback`, `${candidateId}_${currentUser.id}`);
-                        const feedbackDocSnap = await getDoc(feedbackDocRef);
-
-                        const form = container.querySelector(`form[data-candidate-id="${candidateId}"]`);
-                        if (!form) return;
-
-                        let currentTotal = 0;
-                        const criteria = CATEGORIES[candidateCategory];
-
-                        // Load previous scores
-                        scoreDocsSnapshot.docs.forEach(d => {
-                            const scoreData = d.data();
-                            const input = form.querySelector(`[name="${scoreData.category}"]`);
-                            if (input) {
-                                input.value = scoreData.score;
-                                currentTotal += scoreData.score;
-                            }
-                        });
-
-                        // Load previous feedback
-                        if (feedbackDocSnap.exists()) {
-                            form.querySelector(`#feedback-${candidateId}`).value = feedbackDocSnap.data().feedbackText;
-                        }
-                        
-                        form.querySelector('.total-score').textContent = currentTotal;
-                        updateLiveTotal(form); 
-                    }
-
-                    async function handleScoreSubmitAndNext(e) {
-                        e.preventDefault();
-                        const form = e.target;
-                        const candidateId = form.dataset.candidateId;
-                        
-                        if (isSubmittingScore) {
-                            alert("Submission is already in progress. Please wait a moment.");
-                            return;
-                        }
-
-                        isSubmittingScore = true;
-                        
-                        await handleScoreSubmit(e);
-                        
-                        setTimeout(() => {
-                            isSubmittingScore = false;
-                            
-                            const currentTotal = parseInt(form.querySelector('.total-score').textContent, 10) || 0;
-                            allJudgeScores[candidateId] = currentTotal;
-                            
-                            // Find the next unscored candidate
-                            const unscored = getNextCandidate(allJudgeCandidates, allJudgeScores);
-                            
-                            if (unscored) {
-                                renderNextJudgeCard(unscored.id);
-                            } else {
-                                // If all are scored, stay on the current card (which will show 'Session Complete')
-                                renderNextJudgeCard(candidateId); 
-                            }
-                        }, 500); 
-                    }
-
-                    async function handleScoreSubmit(e) {
-                        const form = e.target;
-                        const button = form.querySelector('button[type="submit"]');
-                        button.disabled = true;
-                        button.textContent = 'Submitting...';
-
-                        const candidateId = form.dataset.candidateId;
-                        const batch = writeBatch(db);
-
-                        form.querySelectorAll('.score-input').forEach(input => {
-                            const category = input.name;
-                            const score = parseInt(input.value, 10) || 0;
-                            const scoreId = `${candidateId}-${currentUser.id}-${category.replace(/\W/g, '-')}`;
-                            const scoreRef = doc(db, `artifacts/${appId}/public/data/scores`, scoreId);
-                            batch.set(scoreRef, { candidateId, judgeId: currentUser.id, judgeName: currentUser.name, category, score });
-                        });
-                        
-                        const feedbackText = form.querySelector('textarea').value;
-                        const feedbackId = `${candidateId}_${currentUser.id}`;
-                        const feedbackRef = doc(db, `artifacts/${appId}/public/data/feedback`, feedbackId);
-                        batch.set(feedbackRef, { candidateId, judgeId: currentUser.id, feedbackText });
-
-                        await batch.commit();
-                        button.textContent = 'Submitted!';
-                        setTimeout(() => {
-                            button.disabled = false;
-                        }, 500);
-                    }
-
-                    function updateLiveTotal(form) {
-                           let total = 0;
-                           form.querySelectorAll('.score-input').forEach(i => { total += parseInt(i.value, 10) || 0; });
-                           form.querySelector('.total-score').textContent = total;
-                    }
-
-                    async function handleResetScores() {
-                           if (await showConfirmationModal('Reset All Scores', 'This will delete ALL scores and feedback. This action is irreversible.')) {
-                               const scoresSnapshot = await getDocs(collection(db, `artifacts/${appId}/public/data/scores`));
-                               const feedbackSnapshot = await getDocs(collection(db, `artifacts/${appId}/public/data/feedback`));
-                               const batch = writeBatch(db);
-                               scoresSnapshot.docs.forEach(d => batch.delete(d.ref));
-                               feedbackSnapshot.docs.forEach(d => batch.delete(d.ref));
-                               await batch.commit();
-                           }
-                    }
-
-                    function renderOnlineJudges(presenceDocs) {
-                        const listEl = document.getElementById('judges-online-list');
-                        if(!listEl) return;
-                        listEl.innerHTML = '';
-                        const now = Date.now();
-                        presenceDocs.forEach(docSnap => {
-                            const data = docSnap.data();
-                            if (data.lastSeen && (now - data.lastSeen.toDate().getTime()) < 30000) {
-                                const div = document.createElement('div');
-                                div.className = 'flex items-center bg-gray-100 p-2 rounded-lg';
-                                div.innerHTML = `<span class="online-indicator mr-3"></span><span class="font-medium text-gray-700">${data.name}</span>`;
-                                listEl.appendChild(div);
-                            }
-                        });
-                           if (!listEl.hasChildNodes()) {
-                                listEl.innerHTML = '<p class="text-gray-500 text-sm">No judges currently online.</p>';
-                            }
-                    }
-
-                    function showConfirmationModal(title, message) {
-                        return new Promise((resolve) => {
-                            const modal = document.getElementById('confirmation-modal');
-                            modal.querySelector('#modal-title').textContent = title;
-                            modal.querySelector('#modal-message').textContent = message;
-                            modal.classList.add('active');
-                            const confirmBtn = modal.querySelector('#modal-confirm-btn');
-                            const cancelBtn = modal.querySelector('#modal-cancel-btn');
-                            const close = (result) => {
-                                modal.classList.remove('active');
-                                confirmBtn.replaceWith(confirmBtn.cloneNode(true));
-                                cancelBtn.replaceWith(cancelBtn.cloneNode(true));
-                                resolve(result);
-                            };
-                            modal.querySelector('#modal-confirm-btn').onclick = () => close(true);
-                            modal.querySelector('#modal-cancel-btn').onclick = () => close(false);
-                        });
-                    }
-
-                    function calculateAndDisplayResults(candidates, scores, feedbacks) {
-                        const judges = [...new Set(scores.map(s => s.judgeName))].sort();
-                        
-                        let results = candidates.map(c => {
-                            const scoresByJudge = {};
-                            judges.forEach(j => {
-                                const judgeScores = scores.filter(s => s.candidateId === c.id && s.judgeName === j);
-                                scoresByJudge[j] = judgeScores.reduce((sum, s) => sum + s.score, 0);
-                            });
-                            const totalScores = Object.values(scoresByJudge).filter(s => s > 0);
-                            const judgeCount = totalScores.length;
-                            const average = judgeCount > 0 ? totalScores.reduce((a, b) => a + b, 0) / judgeCount : 0;
-                            return { ...c, scoresByJudge, average: parseFloat(average.toFixed(2)), judgeCount, award: '-' };
-                        });
-
-                        const fullyJudged = results.filter(r => r.judgeCount === FIXED_JUDGE_COUNT);
-                        
-                        const winnerMap = new Map();
-                        const categoryWinners = {};
-                        
-                        CATEGORY_NAMES.forEach(cat => {
-                            const catResults = fullyJudged.filter(r => r.category === cat);
-                            const gold = catResults.filter(r => r.average >= 85).sort((a,b) => b.average - a.average);
-                            const silver = catResults.filter(r => r.average >= 70 && r.average < 85).sort((a,b) => b.average - a.average);
-                            const bronze = catResults.filter(r => r.average >= 55 && r.average < 70).sort((a,b) => b.average - a.average);
-                            
-                            categoryWinners[cat] = { gold, silver, bronze };
-                            
-                            [...gold, ...silver, ...bronze].forEach(r => {
-                                if (r.average >= 85) winnerMap.set(r.id, {level: 'Gold', class: 'bg-yellow-400 text-white'});
-                                else if (r.average >= 70) winnerMap.set(r.id, {level: 'Silver', class: 'bg-gray-400 text-white'});
-                                else if (r.average >= 55) winnerMap.set(r.id, {level: 'Bronze', class: 'bg-yellow-600 text-white'});
-                            });
-                        });
-                        
-                        results.forEach(r => {
-                            if(winnerMap.has(r.id)) r.award = winnerMap.get(r.id).level;
-                        });
-
-                        const rankings = results.sort((a, b) => b.average - a.average);
-
-                        // --- Render Winner Board ---
-                        const winnersBoard = document.getElementById('winners-board');
-                        if(!winnersBoard) return;
-                        winnersBoard.innerHTML = '';
-                        
-                        // 1. Grand Winner Section
-                        const overallRanking = fullyJudged.sort((a,b) => b.average - a.average);
-                        const grandWinner = overallRanking.length > 0 ? overallRanking[0] : null;
-
-                        let grandWinnerHTML = `<div class="text-center p-6 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl shadow-lg mb-8">
-                            <h3 class="text-2xl font-bold text-white uppercase tracking-wider">Overall Grand Winner (Highest Average Score)</h3>`;
-                        if (grandWinner) {
-                            grandWinnerHTML += `<p class="text-4xl font-extrabold text-white mt-2">${grandWinner.name} (${grandWinner.category})</p>
-                                <p class="text-lg font-medium text-indigo-100">Overall Score: ${grandWinner.average.toFixed(2)}</p>`;
-                        } else {
-                            grandWinnerHTML += `<p class="text-xl font-semibold text-white mt-2">- Awaiting ${FIXED_JUDGE_COUNT} scores -</p>`;
-                        }
-                        grandWinnerHTML += `</div>`;
-                        winnersBoard.innerHTML += grandWinnerHTML;
-                        
-                        // 2. Category Winners Section (Separate Cards)
-                        winnersBoard.innerHTML += `<h3 class="text-xl font-bold text-gray-900 mb-4">Winners by Category (Minimum ${FIXED_JUDGE_COUNT} Judges)</h3>`;
-                        
-                        const categoryCardContainer = document.createElement('div');
-                        categoryCardContainer.className = 'grid grid-cols-1 md:grid-cols-3 gap-4';
-
-                        CATEGORY_NAMES.forEach(cat => {
-                            const catData = categoryWinners[cat];
-                            
-                            const renderCategoryTier = (title, winners, colorClass) => {
-                                let html = `<div class="mt-2"><p class="font-medium text-sm text-gray-700">${title} (${winners.length}):</p>`;
-                                if (winners.length > 0) {
-                                    html += `<div class="flex flex-wrap gap-2 pt-1">` + winners.map(w =>
-                                        `<span class="px-3 py-1 text-xs font-semibold rounded-full ${colorClass} text-white">${w.name} (${w.average.toFixed(2)})</span>`
-                                    ).join('') + `</div>`;
-                                } else {
-                                    html += `<p class="text-xs text-gray-500 italic">None finalized.</p>`;
-                                }
-                                html += `</div>`;
-                                return html;
-                            };
-
-                            let categoryHTML = `<div class="bg-gray-100 p-4 rounded-lg shadow-sm h-full flex flex-col">
-                                <h4 class="text-xl font-bold text-indigo-700 mb-3 border-b pb-2">${cat}</h4>
-                                ${renderCategoryTier('Gold (>=85)', catData.gold, 'bg-yellow-600')}
-                                ${renderCategoryTier('Silver (70-84)', catData.silver, 'bg-gray-500')}
-                                ${renderCategoryTier('Bronze (55-69)', catData.bronze, 'bg-amber-700')}
-                            </div>`;
-                            
-                            categoryCardContainer.innerHTML += categoryHTML;
-                        });
-                        winnersBoard.appendChild(categoryCardContainer);
-
-
-                        // --- Render Rankings Table ---
-                        const tableHeader = document.getElementById('rankings-header');
-                        if(!tableHeader) return;
-                        tableHeader.innerHTML = `<tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Presenter</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Session/Category</th>
-                            ${judges.map(j => `<th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${j}</th>`).join('')}
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Judges Submitted</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Average</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Award</th>
-                        </tr>`;
-                        
-                        const rankingsBody = document.getElementById('rankings-body');
-                        if(!rankingsBody) return;
-                        rankingsBody.innerHTML = '';
-                        rankings.forEach(r => {
-                            const awardInfo = winnerMap.get(r.id);
-                            let awardClass = 'bg-gray-200 text-gray-800';
-                            if (awardInfo) {
-                                awardClass = awardInfo.level === 'Gold' ? 'bg-yellow-400 text-white' : 
-                                             (awardInfo.level === 'Silver' ? 'bg-gray-400 text-white' : 'bg-yellow-600 text-white');
-                            }
-                            
-                            const row = document.createElement('tr');
-                            row.innerHTML = `<td class="px-6 py-4 whitespace-nowrap font-medium">${r.orderIndex ? `${r.orderIndex}. ` : ''}${r.name}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${r.session || r.category}</td>
-                                ${judges.map(j => `<td class="px-6 py-4 whitespace-nowrap text-sm">${r.scoresByJudge[j] || '-'}</td>`).join('')}
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-medium">${r.judgeCount} / ${FIXED_JUDGE_COUNT}</td>
-                                <td class="px-6 py-4 whitespace-nowrap font-bold">${r.average.toFixed(2)}</td>
-                                <td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${awardClass}">${r.award}</span></td>`;
-                            rankingsBody.appendChild(row);
-                        });
-
-                        // --- Render Detailed Feedback Board ---
+                        // --- Render Detailed Feedback Board (Real-Time Update) ---
                         const feedbackBoard = document.getElementById('feedback-details-board');
                         if(!feedbackBoard) return;
                         feedbackBoard.innerHTML = '';
