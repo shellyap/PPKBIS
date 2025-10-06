@@ -160,7 +160,8 @@
                          <h2 class="text-2xl font-semibold mb-4">System Controls</h2>
                          <div class="space-y-2">
                             <button id="download-pdf-button" class="w-full text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-5 py-2.5">Download Results as PDF</button>
-                            <button id="reset-button" class="w-full text-white bg-red-600 hover:bg-red-700 font-medium rounded-lg text-sm px-5 py-2.5">Reset All Scores</button>
+                            <button id="reset-scores-button" class="w-full text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-sm px-5 py-2.5">Reset All Scores Only</button>
+                            <button id="reset-all-button" class="w-full text-white bg-red-600 hover:bg-red-700 font-medium rounded-lg text-sm px-5 py-2.5">Reset Everything (Presenters & Scores)</button>
                          </div>
                     </div>
                 </div>
@@ -1051,9 +1052,10 @@
                             try {
                                 await batch.commit();
                                 alert('All scores submitted successfully!');
-                                // Optionally, disable further editing or log out
                                 document.getElementById('judge-presenter-card').innerHTML = `<p class="text-center text-2xl text-green-600 font-bold">Thank you! Your scores for this session have been submitted.</p>`;
-                                document.getElementById('final-submit-button').textContent = 'Submitted';
+                                submitButton.textContent = 'SUBMITTED';
+                                submitButton.classList.remove('bg-green-600', 'hover:bg-green-700');
+                                submitButton.classList.add('bg-gray-400', 'cursor-not-allowed');
                             } catch (error) {
                                 console.error("Error submitting final scores:", error);
                                 alert("An error occurred during final submission. Please try again.");
@@ -1214,6 +1216,23 @@
 
                         doc.save('PPKBIS_Showcase_Results.pdf');
                     }
+                    
+                    async function handleResetEverything() {
+                        if (await showConfirmationModal('RESET EVERYTHING?', 'This will delete ALL presenters, scores, and feedback. This action is irreversible and will completely wipe the event data.')) {
+                            const [candidatesSnapshot, scoresSnapshot, feedbackSnapshot] = await Promise.all([
+                                getDocs(query(collection(db, `artifacts/${appId}/public/data/candidates`))),
+                                getDocs(query(collection(db, `artifacts/${appId}/public/data/scores`))),
+                                getDocs(query(collection(db, `artifacts/${appId}/public/data/feedback`)))
+                            ]);
+
+                            const batch = writeBatch(db);
+                            candidatesSnapshot.docs.forEach(d => batch.delete(d.ref));
+                            scoresSnapshot.docs.forEach(d => batch.delete(d.ref));
+                            feedbackSnapshot.docs.forEach(d => batch.delete(d.ref));
+                            await batch.commit();
+                            alert('The entire event has been reset.');
+                        }
+                    }
 
                     // --- Initial Event Listeners ---
                     document.getElementById('login-form').addEventListener('submit', handleLogin);
@@ -1232,7 +1251,8 @@
                     }
 
                     document.getElementById('add-candidate-form').addEventListener('submit', handleAddCandidate);
-                    document.getElementById('reset-button').addEventListener('click', resetScores);
+                    document.getElementById('reset-scores-button').addEventListener('click', resetScores);
+                    document.getElementById('reset-all-button').addEventListener('click', handleResetEverything);
                     document.getElementById('download-pdf-button').addEventListener('click', generatePDF);
                     document.getElementById('admin-logout').addEventListener('click', handleLogout);
                     document.getElementById('judge-logout').addEventListener('click', handleLogout);
