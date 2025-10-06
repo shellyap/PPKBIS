@@ -759,7 +759,7 @@
                             });
                         }
                     }
-
+                    
                     // --- JUDGE VIEW LOGIC ---
 
                     function initJudgeView() {
@@ -788,22 +788,23 @@
                             
                             renderJudgeSidebar();
                             
-                            // If not submitting, check if we need to auto-load the next unscored presenter
+                            // Only force a UI update if not currently submitting, to prevent jumpiness
                             if (!isSubmittingScore) {
-                                // If the current card was scored/updated, and it was the unscored card, load the NEXT unscored card
-                                if (currentPresenterId && allJudgeScores[currentPresenterId] > 0) {
+                                // If the current card was scored/updated, find the next unscored and load it.
+                                if (currentPresenterId) {
                                     const unscored = getNextCandidate(allJudgeCandidates, allJudgeScores);
-                                    if (unscored && unscored.id !== currentPresenterId) {
+                                    
+                                    // If current card is fully scored and there's a next unscored, navigate.
+                                    if (unscored && unscored.id !== currentPresenterId && allJudgeScores[currentPresenterId] > 0) {
                                         renderNextJudgeCard(unscored.id);
-                                    } else if (!unscored) {
-                                        // If all scored, stay on the last view (Session Complete message)
+                                    } else if (currentPresenterId) {
+                                        // Otherwise, stay on the currently loaded card (either to finish scoring or show completion)
                                         renderNextJudgeCard(currentPresenterId);
                                     }
                                 }
                             }
                         });
                         
-                        // NEW: Final Submit button handler
                         document.getElementById('final-submit-button').onclick = confirmFinalSubmission;
                     }
                     
@@ -816,9 +817,7 @@
                             return;
                         }
 
-                        if (await showConfirmationModal('Final Score Submission', 'Are you absolutely sure you want to finalize and submit ALL scores for this session? This action cannot be easily undone.')) {
-                            // Logic to mark judge as final for this session goes here
-                            // For simplicity, we'll mark a special document to confirm final submission status
+                        if (await showConfirmationModal('Final Score Submission', 'Are you absolutely sure you want to finalize and submit ALL scores for this session? This action is permanent.')) {
                             const finalDocRef = doc(db, `artifacts/${appId}/public/data/final_submissions`, `${currentUser.id}_${currentJudgeSession}`);
                             await setDoc(finalDocRef, {
                                 judgeId: currentUser.id,
@@ -828,8 +827,8 @@
                                 status: 'FINALIZED'
                             });
                             
-                            alert('Scores finalized successfully!');
-                            renderJudgeSidebar(); // Refresh UI to show finalized status
+                            alert('Scores finalized successfully! Thank you for judging.');
+                            renderJudgeSidebar();
                         }
                     }
 
@@ -846,17 +845,15 @@
                         const scoredCount = sessionCandidates.filter(c => allJudgeScores[c.id] > 0).length;
                         const allScored = totalCandidates > 0 && scoredCount === totalCandidates;
 
-                        // Check if final submission is already done (optional advanced check)
-                        // For this implementation, we rely purely on the local count for button enablement
-                        
                         sidebarList.innerHTML = sessionCandidates.map(c => {
                             const isScored = allJudgeScores[c.id] > 0;
                             const isCurrent = c.id === currentPresenterId;
                             const statusClass = isScored ? 'text-green-600' : 'text-yellow-600';
+                            const statusText = isScored ? 'SCORED' : 'PENDING';
                             
                             return `<div data-id="${c.id}" class="sidebar-item ${isCurrent ? 'active-card' : 'text-gray-700'} p-2 rounded-lg text-sm flex justify-between items-center">
                                 <span>${c.orderIndex}. ${c.name}</span>
-                                <span class="text-xs ${statusClass} font-semibold">${isScored ? 'SCORED' : 'PENDING'}</span>
+                                <span class="text-xs ${statusClass} font-semibold">${statusText}</span>
                             </div>`;
                         }).join('');
 
@@ -866,7 +863,6 @@
                             ? `Confirm All Scores (${scoredCount}/${totalCandidates})` 
                             : `Pending (${totalCandidates - scoredCount}) - Cannot Confirm`;
 
-                        // Attach listeners to sidebar items
                         document.querySelectorAll('.sidebar-item').forEach(item => {
                             item.onclick = () => renderNextJudgeCard(item.dataset.id);
                         });
@@ -1004,8 +1000,9 @@
                             const currentTotal = parseInt(form.querySelector('.total-score').textContent, 10) || 0;
                             allJudgeScores[candidateId] = currentTotal;
                             
-                            // Check for the next unscored candidate
+                            // Find the next unscored candidate
                             const unscored = getNextCandidate(allJudgeCandidates, allJudgeScores);
+                            
                             if (unscored) {
                                 renderNextJudgeCard(unscored.id);
                             } else {
