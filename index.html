@@ -51,7 +51,7 @@
         .presenter-item:active {
             cursor: grabbing;
         }
-        /* New judge sidebar styles */
+        /* Judge sidebar styles */
         .sidebar-item {
             cursor: pointer;
             transition: background-color 0.1s;
@@ -62,6 +62,15 @@
         .sidebar-item.active-card {
             background-color: #c7d2fe; /* indigo-300 */
             font-weight: 600;
+        }
+        /* Sticky sidebar for judge view */
+        @media (min-width: 768px) {
+            #judge-sidebar-wrapper {
+                position: sticky;
+                top: 100px; /* Adjust based on header height */
+                max-height: calc(100vh - 120px);
+                overflow-y: auto;
+            }
         }
     </style>
 </head>
@@ -187,10 +196,18 @@
             </header>
             
             <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div class="md:col-span-1 bg-white p-4 rounded-xl shadow-md h-full sticky top-0" style="max-height: calc(100vh - 100px); overflow-y: auto;">
-                    <h3 class="text-xl font-semibold text-gray-800 mb-4 border-b pb-2">Presenter List</h3>
-                    <div id="judge-sidebar-list" class="space-y-1">
-                        <p class="text-gray-500 text-sm">Loading...</p>
+                <div id="judge-sidebar-wrapper" class="md:col-span-1 bg-white p-4 rounded-xl shadow-md space-y-4">
+                    <div class="space-y-1">
+                        <h3 class="text-xl font-semibold text-gray-800 mb-4 border-b pb-2">Presenter List</h3>
+                        <div id="judge-sidebar-list" class="space-y-1">
+                            <p class="text-gray-500 text-sm">Loading...</p>
+                        </div>
+                    </div>
+                    
+                    <div class="border-t pt-4">
+                        <button id="final-submit-button" class="w-full text-white bg-green-600 hover:bg-green-700 font-medium rounded-lg text-sm px-5 py-2.5 disabled:opacity-50" disabled>
+                            Confirm All Scores
+                        </button>
                     </div>
                 </div>
 
@@ -227,7 +244,7 @@
             ]).then((modules) => {
                 const { initializeApp } = modules[0];
                 const { getAuth, signInAnonymously, signInWithCustomToken } = modules[1];
-                const { getFirestore, doc, setDoc, addDoc, deleteDoc, onSnapshot, collection, serverTimestamp, writeBatch, getDocs, query, where, orderBy } = modules[2];
+                const { getFirestore, doc, setDoc, addDoc, deleteDoc, onSnapshot, collection, serverTimestamp, writeBatch, getDocs, getDoc, query, where, orderBy } = modules[2];
 
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'ppkbis-judging-default';
                 
@@ -298,7 +315,7 @@
                     let allJudgeCandidates = [];
                     let allJudgeScores = {};
                     let isSubmittingScore = false; 
-                    let currentPresenterId = null; // NEW: Track the currently loaded presenter ID
+                    let currentPresenterId = null; 
 
                     const views = { login: document.getElementById('login-view'), admin: document.getElementById('admin-view'), judge: document.getElementById('judge-view') };
 
@@ -360,7 +377,7 @@
                         unsubscribePresence();
                         currentUser = null;
                         currentJudgeSession = null;
-                        currentPresenterId = null; // Reset current presenter
+                        currentPresenterId = null;
                         document.getElementById('username').value = '';
                         document.getElementById('session').value = 'Session 1 (Poster)';
                         showView('login');
@@ -369,11 +386,9 @@
                     // --- ADMIN VIEW LOGIC ---
 
                     function initAdminView() {
-                        // 1. Main Data Listener (Candidates, Scores, Feedback)
                         unsubscribeCandidates = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/candidates`), orderBy("session"), orderBy("orderIndex")), async (candidateSnapshot) => {
                             adminCandidates = candidateSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                             
-                            // Fetch scores and feedback in parallel after getting the candidate list
                             const [scoreSnapshot, feedbackSnapshot] = await Promise.all([
                                 getDocs(collection(db, `artifacts/${appId}/public/data/scores`)),
                                 getDocs(collection(db, `artifacts/${appId}/public/data/feedback`))
@@ -386,7 +401,6 @@
                             calculateAndDisplayResults(adminCandidates, adminScores, adminFeedbacks);
                         });
 
-                        // 2. Scores/Rankings Listener (Secondary)
                         unsubscribeScores = onSnapshot(collection(db, `artifacts/${appId}/public/data/scores`), async (scoreSnapshot) => {
                             if (adminCandidates.length === 0) return;
 
@@ -398,7 +412,6 @@
                             calculateAndDisplayResults(adminCandidates, adminScores, adminFeedbacks);
                         });
                         
-                        // 3. Presence Listener
                         unsubscribePresence = onSnapshot(collection(db, `artifacts/${appId}/public/data/presence`), (snapshot) => {
                             renderOnlineJudges(snapshot.docs);
                         });
@@ -426,7 +439,6 @@
                         }
                         
                         try {
-                            // IMMEDIATE UX: Manually create a placeholder object and render immediately
                             const tempId = `temp-${Date.now()}`;
                             const newCandidate = { id: tempId, name: candidateName, session: session, category: category, orderIndex: orderIndex };
                             
@@ -436,7 +448,6 @@
                             });
                             renderAdminCandidateList(updatedCandidates);
                             
-                            // Perform the actual Firestore write
                             await addDoc(collection(db, `artifacts/${appId}/public/data/candidates`), { 
                                 name: candidateName, 
                                 session: session,
@@ -476,7 +487,7 @@
                     }
                     
                     async function handlePresenterReorder(evt) {
-                        if (evt.from !== evt.to) { return; } // Should not happen due to SortableJS config
+                        if (evt.from !== evt.to) { return; } 
                         
                         const listEl = evt.from;
                         const newOrder = Array.from(listEl.children).map(item => item.dataset.id);
@@ -555,12 +566,10 @@
                                 li.dataset.session = c.session;
 
                                 li.innerHTML = `<div class="flex justify-between items-center p-2">
-                                    <div class="flex items-center space-x-3">
-                                        <span class="drag-handle text-gray-400 hover:text-gray-600 cursor-grab">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                <path d="M10 3a1 1 0 011 1v2a1 1 0 11-2 0V4a1 1 0 011-1zM7 7a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zM4 11a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM7 15a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zM10 18a1 1 0 011-1v2a1 1 0 11-2 0v-2a1 1 0 011 1z"/>
-                                            </svg>
-                                        </span>
+                                    <div class="flex items-center space-x-3 drag-handle text-gray-400 hover:text-gray-600 cursor-grab">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path d="M10 3a1 1 0 011 1v2a1 1 0 11-2 0V4a1 1 0 011-1zM7 7a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zM4 11a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM7 15a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zM10 18a1 1 0 011-1v2a1 1 0 11-2 0v-2a1 1 0 011 1z"/>
+                                        </svg>
                                         <span class="text-sm font-medium text-gray-900">${c.orderIndex || '-'}. ${c.name}</span>
                                         <span class="ml-2 text-xs text-gray-600 bg-gray-200 px-2 py-1 rounded-full">${c.category}</span>
                                         ${isTemporary ? '<span class="ml-2 text-xs text-red-600 bg-red-100 px-2 py-1 rounded-full">Saving...</span>' : ''}
@@ -583,8 +592,6 @@
                     }
                     
                     function calculateAndDisplayResults(candidates, scores, feedbacks) {
-                        // ... (omitted for brevity, assume full implementation is here) ...
-                        // The implementation of calculateAndDisplayResults remains the same as the previous full version.
                         const judges = [...new Set(scores.map(s => s.judgeName))].sort();
                         
                         let results = candidates.map(c => {
@@ -759,7 +766,6 @@
                         // Listener for all candidates (sorted by session and order)
                         unsubscribeCandidates = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/candidates`), orderBy("session"), orderBy("orderIndex")), (snapshot) => {
                             allJudgeCandidates = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                            // When candidates change, update sidebar and check what card to load
                             renderJudgeSidebar();
                             
                             // If no card is loaded yet, load the next unscored one.
@@ -780,36 +786,69 @@
                                 return acc;
                             }, {});
                             
-                            renderJudgeSidebar(); // Update status in the sidebar instantly
+                            renderJudgeSidebar();
                             
+                            // If not submitting, check if we need to auto-load the next unscored presenter
                             if (!isSubmittingScore) {
-                                // If the current card is scored, move to the next unscored one
+                                // If the current card was scored/updated, and it was the unscored card, load the NEXT unscored card
                                 if (currentPresenterId && allJudgeScores[currentPresenterId] > 0) {
                                     const unscored = getNextCandidate(allJudgeCandidates, allJudgeScores);
-                                    if (unscored) {
+                                    if (unscored && unscored.id !== currentPresenterId) {
                                         renderNextJudgeCard(unscored.id);
-                                    } else {
-                                        // All scored
+                                    } else if (!unscored) {
+                                        // If all scored, stay on the last view (Session Complete message)
                                         renderNextJudgeCard(currentPresenterId);
                                     }
                                 }
                             }
                         });
+                        
+                        // NEW: Final Submit button handler
+                        document.getElementById('final-submit-button').onclick = confirmFinalSubmission;
                     }
                     
+                    async function confirmFinalSubmission() {
+                        const allSessionCandidates = allJudgeCandidates.filter(c => c.session === currentJudgeSession);
+                        const unscoredCount = allSessionCandidates.filter(c => !allJudgeScores[c.id] || allJudgeScores[c.id] === 0).length;
+
+                        if (unscoredCount > 0) {
+                            alert(`You still have ${unscoredCount} presenter(s) with pending scores. Please complete all scores before final submission.`);
+                            return;
+                        }
+
+                        if (await showConfirmationModal('Final Score Submission', 'Are you absolutely sure you want to finalize and submit ALL scores for this session? This action cannot be easily undone.')) {
+                            // Logic to mark judge as final for this session goes here
+                            // For simplicity, we'll mark a special document to confirm final submission status
+                            const finalDocRef = doc(db, `artifacts/${appId}/public/data/final_submissions`, `${currentUser.id}_${currentJudgeSession}`);
+                            await setDoc(finalDocRef, {
+                                judgeId: currentUser.id,
+                                judgeName: currentUser.name,
+                                session: currentJudgeSession,
+                                timestamp: serverTimestamp(),
+                                status: 'FINALIZED'
+                            });
+                            
+                            alert('Scores finalized successfully!');
+                            renderJudgeSidebar(); // Refresh UI to show finalized status
+                        }
+                    }
+
                     function renderJudgeSidebar() {
                         const sidebarList = document.getElementById('judge-sidebar-list');
-                        if (!sidebarList) return;
+                        const finalSubmitButton = document.getElementById('final-submit-button');
+                        if (!sidebarList || !finalSubmitButton) return;
 
                         const sessionCandidates = allJudgeCandidates
                             .filter(c => c.session === currentJudgeSession)
                             .sort((a, b) => a.orderIndex - b.orderIndex);
 
-                        if (sessionCandidates.length === 0) {
-                            sidebarList.innerHTML = `<p class="text-gray-500 text-sm">No presenters in this session yet.</p>`;
-                            return;
-                        }
+                        const totalCandidates = sessionCandidates.length;
+                        const scoredCount = sessionCandidates.filter(c => allJudgeScores[c.id] > 0).length;
+                        const allScored = totalCandidates > 0 && scoredCount === totalCandidates;
 
+                        // Check if final submission is already done (optional advanced check)
+                        // For this implementation, we rely purely on the local count for button enablement
+                        
                         sidebarList.innerHTML = sessionCandidates.map(c => {
                             const isScored = allJudgeScores[c.id] > 0;
                             const isCurrent = c.id === currentPresenterId;
@@ -821,6 +860,12 @@
                             </div>`;
                         }).join('');
 
+                        // Enable/Disable Final Submit button
+                        finalSubmitButton.disabled = !allScored;
+                        finalSubmitButton.textContent = allScored 
+                            ? `Confirm All Scores (${scoredCount}/${totalCandidates})` 
+                            : `Pending (${totalCandidates - scoredCount}) - Cannot Confirm`;
+
                         // Attach listeners to sidebar items
                         document.querySelectorAll('.sidebar-item').forEach(item => {
                             item.onclick = () => renderNextJudgeCard(item.dataset.id);
@@ -831,12 +876,10 @@
                     function getNextCandidate(candidates, scores) {
                         const sessionCandidates = candidates.filter(c => c.session === currentJudgeSession);
                         
-                        // Find the first candidate (lowest orderIndex) who hasn't been scored yet (score is 0 or undefined)
                         const unscoredCandidate = sessionCandidates
                             .sort((a, b) => a.orderIndex - b.orderIndex)
                             .find(c => !scores[c.id] || scores[c.id] === 0);
                         
-                        // If all are scored, return null, which triggers the "Session Complete" message
                         return unscoredCandidate || null;
                     }
 
@@ -853,13 +896,12 @@
 
                         if (!candidate) {
                             container.innerHTML = `<p class="text-center text-green-600 text-2xl font-bold mt-4">Session Complete!</p>
-                                <p class="text-center text-gray-600 text-md mt-2">You have submitted scores for all ${currentJudgeSession} presenters.</p>`;
+                                <p class="text-center text-gray-600 text-md mt-2">You have submitted scores for all ${currentJudgeSession} presenters. You may now confirm your final scores.</p>`;
                             currentPresenterId = null;
-                            renderJudgeSidebar(); // Update sidebar to reflect completion
+                            renderJudgeSidebar();
                             return;
                         }
                         
-                        // Set the currently loaded presenter ID
                         currentPresenterId = candidate.id;
 
                         const criteria = CATEGORIES[candidate.category];
@@ -895,9 +937,8 @@
                             </form>`;
                         
                         populateJudgeCard(candidate.id, candidate.category, container);
-                        renderJudgeSidebar(); // Update sidebar to highlight active item
+                        renderJudgeSidebar();
 
-                        // Attach listeners
                         container.querySelector('.candidate-score-form').addEventListener('submit', handleScoreSubmitAndNext);
                         container.querySelector('.candidate-score-form').addEventListener('input', e => {
                             if (e.target.classList.contains('score-input')) {
@@ -924,6 +965,7 @@
                         let currentTotal = 0;
                         const criteria = CATEGORIES[candidateCategory];
 
+                        // Load previous scores
                         scoreDocsSnapshot.docs.forEach(d => {
                             const scoreData = d.data();
                             const input = form.querySelector(`[name="${scoreData.category}"]`);
@@ -933,6 +975,7 @@
                             }
                         });
 
+                        // Load previous feedback
                         if (feedbackDocSnap.exists()) {
                             form.querySelector(`#feedback-${candidateId}`).value = feedbackDocSnap.data().feedbackText;
                         }
@@ -961,12 +1004,12 @@
                             const currentTotal = parseInt(form.querySelector('.total-score').textContent, 10) || 0;
                             allJudgeScores[candidateId] = currentTotal;
                             
-                            // Check for the next UNSCORED candidate
+                            // Check for the next unscored candidate
                             const unscored = getNextCandidate(allJudgeCandidates, allJudgeScores);
                             if (unscored) {
                                 renderNextJudgeCard(unscored.id);
                             } else {
-                                // If all are scored, render the current card (which will show 'Session Complete')
+                                // If all are scored, stay on the current card (which will show 'Session Complete')
                                 renderNextJudgeCard(candidateId); 
                             }
                         }, 500); 
