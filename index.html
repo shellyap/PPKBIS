@@ -442,12 +442,14 @@
                             const tempId = `temp-${Date.now()}`;
                             const newCandidate = { id: tempId, name: candidateName, session: session, category: category, orderIndex: orderIndex };
                             
+                            // UX Optimization: Render immediately before Firestore confirms
                             const updatedCandidates = [...adminCandidates, newCandidate].sort((a, b) => {
                                 if (a.session !== b.session) return a.session.localeCompare(b.session);
                                 return a.orderIndex - b.orderIndex;
                             });
                             renderAdminCandidateList(updatedCandidates);
                             
+                            // Firestore write
                             await addDoc(collection(db, `artifacts/${appId}/public/data/candidates`), { 
                                 name: candidateName, 
                                 session: session,
@@ -540,6 +542,7 @@
                         
                         const sessions = {};
                         candidates.forEach(c => {
+                            // Fallback logic and naming convention for sorting unknown sessions to the bottom
                             const sessionKey = c.session || 'zz_Unassigned Session';
                             if (!sessions[sessionKey]) sessions[sessionKey] = [];
                             sessions[sessionKey].push(c);
