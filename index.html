@@ -114,7 +114,7 @@
                     </div>
                     
                     <div class="bg-white p-6 rounded-xl shadow-md">
-                        <h2 class="text-2xl font-semibold mb-4">Presenter List</h2>
+                        <h2 class="text-2xl font-semibold mb-4">Presenter List (by Order)</h2>
                         <div id="admin-candidate-list" class="space-y-2"></div>
                     </div>
                     
@@ -267,7 +267,7 @@
                     let currentJudgeSession = null;
                     let allJudgeCandidates = [];
                     let allJudgeScores = {};
-                    let isSubmittingScore = false; // NEW: Lock to prevent multiple fast submits
+                    let isSubmittingScore = false; 
 
                     const views = { login: document.getElementById('login-view'), admin: document.getElementById('admin-view'), judge: document.getElementById('judge-view') };
 
@@ -338,8 +338,6 @@
 
                     function initAdminView() {
                         // 1. Main Data Listener (Candidates, Scores, Feedback)
-                        // Listen primarily to candidates (to ensure sorting) and fetch everything else inside.
-                        // This makes candidate additions INSTANTLY visible.
                         unsubscribeCandidates = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/candidates`), orderBy("session"), orderBy("orderIndex")), async (candidateSnapshot) => {
                             adminCandidates = candidateSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                             
@@ -356,19 +354,12 @@
                             calculateAndDisplayResults(adminCandidates, adminScores, adminFeedbacks);
                         });
 
-                        // 2. Scores/Rankings Listener (Secondary - only for score changes)
-                        // This will trigger faster updates when a judge submits a score, without waiting for the candidate list update.
-                        // However, since we need full context (candidates and feedback) to render, this still has to be comprehensive.
-                        // REFACTOR: We keep the main listener above for full dashboard refresh and rely on its frequency.
-                        // Let's keep the core logic in the main listener for simplicity and reliability, or use a complex trigger system.
-                        // For faster updates, we'll implement a simpler score listener.
+                        // 2. Scores/Rankings Listener (Secondary)
                         unsubscribeScores = onSnapshot(collection(db, `artifacts/${appId}/public/data/scores`), async (scoreSnapshot) => {
-                            // If candidates haven't been loaded yet, skip the calculation
                             if (adminCandidates.length === 0) return;
 
                             adminScores = scoreSnapshot.docs.map(d => d.data());
                             
-                            // Fetch fresh feedback data
                             const feedbackSnapshot = await getDocs(collection(db, `artifacts/${appId}/public/data/feedback`));
                             adminFeedbacks = feedbackSnapshot.docs.map(d => d.data());
 
@@ -396,7 +387,6 @@
                         const category = SESSION_CATEGORY_MAP[session];
                         const orderIndex = order;
 
-                        // IMMEDIATE UX IMPROVEMENT: Check for duplicates before attempting Firestore write
                         const existing = adminCandidates.find(c => c.session === session && c.orderIndex === orderIndex);
                         if (existing) {
                             alert(`Order number ${orderIndex} already exists in ${session}. Please use a different number.`);
@@ -404,11 +394,11 @@
                         }
                         
                         try {
-                            // OPTIMIZATION: Manually create a placeholder object and render immediately
+                            // IMMEDIATE UX: Manually create a placeholder object and render immediately
                             const tempId = `temp-${Date.now()}`;
                             const newCandidate = { id: tempId, name: candidateName, session: session, category: category, orderIndex: orderIndex };
                             
-                            // Insert temporary candidate and force re-render the list immediately
+                            // Combine, sort, and re-render the list immediately
                             const updatedCandidates = [...adminCandidates, newCandidate].sort((a, b) => {
                                 if (a.session !== b.session) return a.session.localeCompare(b.session);
                                 return a.orderIndex - b.orderIndex;
@@ -416,7 +406,7 @@
                             renderAdminCandidateList(updatedCandidates);
                             
                             // Perform the actual Firestore write
-                            const docRef = await addDoc(collection(db, `artifacts/${appId}/public/data/candidates`), { 
+                            await addDoc(collection(db, `artifacts/${appId}/public/data/candidates`), { 
                                 name: candidateName, 
                                 session: session,
                                 category: category,
@@ -426,13 +416,9 @@
                             candidateNameInput.value = '';
                             document.getElementById('candidate-order').value = '';
 
-                            // The onSnapshot listener will fire shortly and replace the temp ID with the real one,
-                            // but the user experience is now much faster.
-
                         } catch (error) {
                             console.error("Error adding candidate:", error);
                             alert("Error adding presenter. Check console for details.");
-                            // If the write fails, revert the list to the actual state
                             renderAdminCandidateList(adminCandidates);
                         }
                     }
@@ -448,7 +434,11 @@
                             scoresSnapshot.docs.forEach(d => batch.delete(d.ref));
 
                             const feedbackSnapshot = await getDocs(collection(db, `artifacts/${appId}/public/data/feedback`));
-                            feedbackSnapshot.docs.filter(d => d.data().candidateId === candidateId || d.id.startsWith(`${candidateId}_`)).forEach(d => batch.delete(d.ref));
+                            feedbackSnapshot.docs.forEach(d => {
+                                if (d.data().candidateId === candidateId || d.id.startsWith(`${candidateId}_`)) {
+                                    batch.delete(d.ref);
+                                }
+                            });
 
                             await batch.commit();
                         }
@@ -457,32 +447,54 @@
                     function renderAdminCandidateList(candidates) {
                         const listEl = document.getElementById('admin-candidate-list');
                         if(!listEl) return;
-                        listEl.innerHTML = candidates.length ? '' : '<p class="text-gray-500">No presenters added yet.</p>';
+                        listEl.innerHTML = '';
+
+                        if (candidates.length === 0) {
+                            listEl.innerHTML = '<p class="text-gray-500">No presenters added yet.</p>';
+                            return;
+                        }
                         
+                        // NEW: Group candidates by session for better visual arrangement
+                        const sessions = {};
                         candidates.forEach(c => {
-                            const div = document.createElement('div');
-                            div.className = 'flex justify-between items-center bg-gray-100 p-2 rounded-lg';
-                            
-                            // Check if it's a temporary item (id starts with 'temp-') to prevent deleting before flush
-                            const isTemporary = c.id.startsWith('temp-');
-                            
-                            div.innerHTML = `<div><span class="text-sm font-medium">${c.orderIndex || '-'}. ${c.name}</span>
-                                <span class="ml-2 text-xs text-indigo-600 bg-indigo-100 px-2 py-1 rounded-full">${c.session}</span>
-                                <span class="ml-2 text-xs text-gray-600 bg-gray-200 px-2 py-1 rounded-full">${c.category}</span>
-                                ${isTemporary ? '<span class="ml-2 text-xs text-red-600 bg-red-100 px-2 py-1 rounded-full">Saving...</span>' : ''}
-                                </div>
-                                <button data-id="${c.id}" class="delete-candidate-btn text-red-500 hover:text-red-700 text-xs font-bold ${isTemporary ? 'opacity-50 cursor-not-allowed' : ''}" ${isTemporary ? 'disabled' : ''}>DELETE</button>`;
-                            listEl.appendChild(div);
+                            const sessionKey = c.session || 'Unassigned Session';
+                            if (!sessions[sessionKey]) sessions[sessionKey] = [];
+                            sessions[sessionKey].push(c);
                         });
+
+                        const sessionKeys = Object.keys(sessions).sort(); // Sort sessions alphabetically
+
+                        sessionKeys.forEach(sessionKey => {
+                            const sessionGroup = document.createElement('div');
+                            sessionGroup.className = 'mb-4 border-b border-indigo-200 pb-2';
+                            sessionGroup.innerHTML = `<h4 class="text-lg font-semibold text-indigo-700 mb-2">${sessionKey}</h4>`;
+
+                            // Candidates within each session are already ordered by 'orderIndex' due to the onSnapshot query
+                            sessions[sessionKey].forEach(c => {
+                                const div = document.createElement('div');
+                                div.className = 'flex justify-between items-center bg-gray-50 p-2 rounded-lg mb-1';
+                                
+                                const isTemporary = c.id.startsWith('temp-');
+                                
+                                div.innerHTML = `<div>
+                                    <span class="text-sm font-medium text-gray-900">${c.orderIndex || '-'}. ${c.name}</span>
+                                    <span class="ml-2 text-xs text-gray-600 bg-gray-200 px-2 py-1 rounded-full">${c.category}</span>
+                                    ${isTemporary ? '<span class="ml-2 text-xs text-red-600 bg-red-100 px-2 py-1 rounded-full">Saving...</span>' : ''}
+                                    </div>
+                                    <button data-id="${c.id}" class="delete-candidate-btn text-red-500 hover:text-red-700 text-xs font-bold ${isTemporary ? 'opacity-50 cursor-not-allowed' : ''}" ${isTemporary ? 'disabled' : ''}>DELETE</button>`;
+                                
+                                sessionGroup.appendChild(div);
+                            });
+                            
+                            listEl.appendChild(sessionGroup);
+                        });
+
                         document.querySelectorAll('.delete-candidate-btn').forEach(btn => btn.onclick = (e) => {
                             if (!e.target.disabled) deleteCandidate(btn.dataset.id);
                         });
                     }
                     
                     function calculateAndDisplayResults(candidates, scores, feedbacks) {
-                        // Logic is the same as the last version, using the updated adminCandidates, adminScores, adminFeedbacks
-                        // ... [Existing implementation of calculateAndDisplayResults] ...
-                        
                         const judges = [...new Set(scores.map(s => s.judgeName))].sort();
                         
                         let results = candidates.map(c => {
@@ -693,8 +705,6 @@
                         const container = document.getElementById('judge-presenter-card');
                         if (!container) return;
                         
-                        // Find the presenter either by the ID requested after a successful submit (for update UI) 
-                        // or by the next unscored one.
                         let nextCandidate;
                         if (candidateToEditId) {
                             nextCandidate = allJudgeCandidates.find(c => c.id === candidateToEditId);
@@ -712,7 +722,6 @@
                         const criteria = CATEGORIES[candidate.category];
                         const maxTotal = criteria.reduce((sum, crit) => sum + crit.max, 0);
 
-                        // Check if the candidate has been partially scored (total score > 0)
                         const isScored = allJudgeScores[candidate.id] > 0;
                         const submitButtonText = isScored ? 'Update Scores & Proceed' : 'Submit Scores & Next Presenter';
                         const cardClass = isScored ? 'border-4 border-yellow-500 shadow-xl' : 'shadow-2xl';
@@ -798,23 +807,16 @@
                             return;
                         }
 
-                        // LOCK: Prevent multiple submissions
                         isSubmittingScore = true;
                         
-                        // Submit the score (locking logic inside handleScoreSubmit)
                         await handleScoreSubmit(e);
                         
-                        // UNLOCK and refresh the UI after a short delay
                         setTimeout(() => {
                             isSubmittingScore = false;
                             
-                            // OPTIMIZATION: Manually update the local score map *before* the Firestore listener fires
-                            // This gives the immediate feeling of "Next"
-                            // Note: This is an estimated update, the actual score listener will correct it if needed.
                             const currentTotal = parseInt(form.querySelector('.total-score').textContent, 10) || 0;
                             allJudgeScores[candidateId] = currentTotal;
                             
-                            // Render the true next candidate immediately (bypassing the onSnapshot lag)
                             renderNextJudgeCard();
                         }, 500); 
                     }
@@ -848,16 +850,23 @@
                         }, 500);
                     }
 
-                    // --- UTILITY LOGIC ---
-
                     function updateLiveTotal(form) {
                            let total = 0;
                            form.querySelectorAll('.score-input').forEach(i => { total += parseInt(i.value, 10) || 0; });
                            form.querySelector('.total-score').textContent = total;
                     }
 
-                    // ... [calculateAndDisplayResults, renderOnlineJudges, handleResetScores, showConfirmationModal are included below for completeness] ...
-                    
+                    async function handleResetScores() {
+                           if (await showConfirmationModal('Reset All Scores', 'This will delete ALL scores and feedback. This action is irreversible.')) {
+                               const scoresSnapshot = await getDocs(collection(db, `artifacts/${appId}/public/data/scores`));
+                               const feedbackSnapshot = await getDocs(collection(db, `artifacts/${appId}/public/data/feedback`));
+                               const batch = writeBatch(db);
+                               scoresSnapshot.docs.forEach(d => batch.delete(d.ref));
+                               feedbackSnapshot.docs.forEach(d => batch.delete(d.ref));
+                               await batch.commit();
+                           }
+                    }
+
                     function renderOnlineJudges(presenceDocs) {
                         const listEl = document.getElementById('judges-online-list');
                         if(!listEl) return;
@@ -909,7 +918,6 @@
                         candidateSessionSelect.addEventListener('change', (e) => {
                             updateCategoryDropdown(e.target.value);
                         });
-                        // Initial setup for admin fields
                         updateCategoryDropdown(candidateSessionSelect.value);
                     }
 
